@@ -1,4 +1,5 @@
 from pathlib import Path
+# all parameters and constants used across the project should be defined here
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
