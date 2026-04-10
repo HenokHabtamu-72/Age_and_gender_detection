@@ -1,0 +1,20 @@
+{
+  "split_csv": "outputs/results/utkface_splits.csv",
+  "experiment_name": "improved_cnn",
+  "variant": "improved",
+  "image_size": 128,
+  "batch_size": 64,
+  "epochs": 35,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "dropout": 0.35,
+  "use_se": true,
+  "age_weight": 1.0,
+  "gender_weight": 1.0,
+  "age_bucket_weight": 0.3,
+  "age_loss": "huber",
+  "num_workers": 2,
+  "seed": 42,
+  "device": "cpu",
+  "parameter_count": 3644986
+}

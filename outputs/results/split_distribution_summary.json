@@ -1,0 +1,32 @@
+[
+  {
+    "split": "test",
+    "count": 3556,
+    "age_mean": 33.211473565804276,
+    "age_std": 19.881658967385505,
+    "male_ratio": 0.514341957255343,
+    "female_ratio": 0.4856580427446569,
+    "age_mean_delta_vs_all": 0.08943341584516418,
+    "age_std_delta_vs_all": 0.003629688695482969
+  },
+  {
+    "split": "train",
+    "count": 16593,
+    "age_mean": 33.239739649249685,
+    "age_std": 19.89590871238481,
+    "male_ratio": 0.5247996142951847,
+    "female_ratio": 0.47520038570481526,
+    "age_mean_delta_vs_all": 0.061167332399755026,
+    "age_std_delta_vs_all": 0.010620056303821457
+  },
+  {
+    "split": "val",
+    "count": 3556,
+    "age_mean": 33.67575928008999,
+    "age_std": 19.835112984317963,
+    "male_ratio": 0.5213723284589427,
+    "female_ratio": 0.47862767154105734,
+    "age_mean_delta_vs_all": 0.3748522984405511,
+    "age_std_delta_vs_all": 0.050175671763025065
+  }
+]
