@@ -1,23 +1,27 @@
 # UTKFace Age & Gender Prediction Project
 
-A complete local Python project for **age regression** and **gender classification** on **UTKFace**.
+A local Python project for **age regression** and **gender classification** on **UTKFace**.
 
-## Main features
+## What it does
 
-- Age as **regression**
-- Gender as **binary classification**
-- **Multitask CNN** trained from scratch (no pretrained weights in the main model)
-- Proper **train / val / test split** saved to CSV
-- Full training, evaluation, and inference pipeline
-- **OpenCV benchmark** comparison on the **same test set**
-- **Naive baselines** on the same test set
-- Training curves, scatter plots, residual plots, confusion matrix, ROC curve, benchmark charts
-- Results exported to **CSV / JSON / PNG**
-- Simple **ablation experiment** runner
+- Predicts **age as a regression target**
+- Predicts **gender as a binary classification target**
+- Trains a multitask CNN from scratch
+- Saves **train / val / test** splits to CSV
+- Exports training history, validation metrics, test metrics, plots, and sample predictions
+- Includes a simple naive baseline runner and an ablation runner
 
-## Dataset expectation
+## Available model variants
 
-The project assumes UTKFace filenames follow this pattern:
+There are exactly two user-facing model options:
+
+- `baseline`
+- `improved_with_se`
+
+`improved_with_se` uses the deeper improved backbone with squeeze-and-excitation enabled automatically.
+`baseline` uses the smaller baseline backbone with SE disabled.
+
+## Expected dataset filename format
 
 ```text
 age_gender_race_timestamp.jpg.chip.jpg
@@ -40,8 +44,6 @@ utk_age_gender_project/
       2_1_2_20170116174525125.jpg.chip.jpg
       ...
   src/
-  models/
-    opencv/
   outputs/
     logs/
     models/
@@ -67,11 +69,8 @@ utk_age_gender_project/
     evaluate.py
     inference.py
     benchmarks_naive.py
-    download_opencv_models.py
-    benchmarks_opencv.py
     run_ablation.py
-  models/
-    opencv/
+    simple_transforms.py
   outputs/
     logs/
     models/
@@ -81,100 +80,74 @@ utk_age_gender_project/
 
 ## Setup
 
-### 1) Create a virtual environment
-
-Windows PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-Linux / macOS:
-
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-```
-
-### 2) Install dependencies
-
-```bash
 pip install -r requirements.txt
 ```
 
-For GPU training, make sure your `torch` installation is the CUDA-enabled one for your machine.
+For GPU training, install a CUDA-enabled PyTorch build that matches your machine.
 
-## Python and device notes
+## Workflow
 
-- Recommended Python: **3.10 or 3.11**
-- The training and evaluation scripts automatically use **GPU** when `torch.cuda.is_available()` is `True`; otherwise they fall back to CPU.
-- To use an NVIDIA GPU, install a **CUDA-enabled PyTorch build** that matches your system. The exact install command can differ by CUDA version, so check the official PyTorch selector if needed.
-- This project intentionally avoids `torchvision` so you do not run into the common `torchvision::nms does not exist` compatibility issue.
+### 1) Prepare metadata and train / val / test splits
 
-## Step-by-step workflow
-
-### Step 1: Build the metadata CSV and split file
+The split preparation step creates a held-out test split so final reporting can be done on unseen data. It first separates `train` from a temporary holdout set, then splits that holdout into `val` and `test` using the safest available stratification key among `gender + age_strata`, `age_strata`, `gender`, or no stratification if the dataset is too small.
 
 ```bash
 python src/prepare_data.py --data_dir data/UTKFace --output_csv outputs/results/utkface_metadata.csv --split_csv outputs/results/utkface_splits.csv
 ```
 
-This creates:
+### 2) Train a model
 
-- `outputs/results/utkface_metadata.csv`
-- `outputs/results/utkface_splits.csv`
-- dataset distribution plots in `outputs/plots/prepare_data/`
+Training uses the `train` split and selects the best checkpoint using **validation total loss**. Early stopping and the LR scheduler also use that same validation criterion.
 
-### Step 2: Train the main model
-
-Baseline from-scratch model:
+Baseline:
 
 ```bash
 python src/train.py --split_csv outputs/results/utkface_splits.csv --experiment_name baseline_cnn --variant baseline --epochs 25 --batch_size 64 --image_size 128
 ```
 
-Improved hybrid model:
+Improved model with SE:
 
 ```bash
-python src/train.py --split_csv outputs/results/utkface_splits.csv --experiment_name improved_cnn --variant improved --epochs 35 --batch_size 64 --image_size 128 --dropout 0.35 --age_loss huber --use_se
+python src/train.py --split_csv outputs/results/utkface_splits.csv --experiment_name improved_with_se_cnn --variant improved_with_se --epochs 35 --batch_size 64 --image_size 128 --dropout 0.35 --age_loss huber
 ```
 
-### Step 3: Evaluate the trained model on the test split
+### 3) Evaluate a trained checkpoint on the held-out test split
+
+`evaluate.py` now defaults to `test`, derives the experiment name from the checkpoint folder when not provided, and loads checkpoints strictly so architecture mismatches fail loudly.
 
 ```bash
-python src/evaluate.py --split_csv outputs/results/utkface_splits.csv --checkpoint outputs/models/improved_cnn/best_model.pt --experiment_name improved_cnn
+python src/evaluate.py --split_csv outputs/results/utkface_splits.csv --checkpoint outputs/models/improved_with_se_cnn/best_model.pt --split_name test
 ```
 
-### Step 4: Run naive baselines on the same test split
+### 4) Run the naive baseline on the held-out test split
 
 ```bash
-python src/benchmarks_naive.py --split_csv outputs/results/utkface_splits.csv --experiment_name naive_baselines
+python src/benchmarks_naive.py --split_csv outputs/results/utkface_splits.csv --split_name test
 ```
 
-### Step 5: Download OpenCV benchmark models
+### 5) Run the ablation suite
 
 ```bash
-python src/download_opencv_models.py --model_dir models/opencv
+python src/run_ablation.py --split_csv outputs/results/utkface_splits.csv --eval_split test
 ```
 
-### Step 6: Run the OpenCV benchmark on the same test split
+### 6) Run single-image inference
 
 ```bash
-python src/benchmarks_opencv.py --split_csv outputs/results/utkface_splits.csv --model_dir models/opencv --experiment_name opencv_benchmark
+python src/inference.py --checkpoint outputs/models/improved_with_se_cnn/best_model.pt --image path/to/image.jpg
 ```
 
-### Step 7: Run the ablation suite
+Inference prints only predicted age, predicted gender, and gender probability.
 
-```bash
-python src/run_ablation.py --split_csv outputs/results/utkface_splits.csv
-```
-
-## Important outputs
+## Outputs
 
 ### Training outputs
 
 - `outputs/models/<experiment_name>/best_model.pt`
+- `outputs/models/<experiment_name>/train_config.json`
 - `outputs/logs/<experiment_name>/history.csv`
 - `outputs/plots/<experiment_name>/training_total_loss.png`
 - `outputs/plots/<experiment_name>/training_age_mae.png`
@@ -182,52 +155,29 @@ python src/run_ablation.py --split_csv outputs/results/utkface_splits.csv
 
 ### Evaluation outputs
 
-- `outputs/results/<experiment_name>/test_predictions.csv`
-- `outputs/results/<experiment_name>/metrics.json`
-- `outputs/results/<experiment_name>/metrics_summary.csv`
-- `outputs/results/<experiment_name>/group_metrics.csv`
-- `outputs/plots/<experiment_name>/age_true_vs_pred.png`
-- `outputs/plots/<experiment_name>/age_residual_hist.png`
-- `outputs/plots/<experiment_name>/age_residual_scatter.png`
-- `outputs/plots/<experiment_name>/gender_confusion_matrix.png`
-- `outputs/plots/<experiment_name>/gender_roc_curve.png`
-- `outputs/plots/<experiment_name>/sample_predictions.png`
+- `outputs/results/<experiment_name>/<split_name>_predictions.csv`
+- `outputs/results/<experiment_name>/metrics_<split_name>.json`
+- `outputs/results/<experiment_name>/metrics_summary_<split_name>.csv`
+- `outputs/plots/<experiment_name>/age_true_vs_pred_<split_name>.png`
+- `outputs/plots/<experiment_name>/age_residual_hist_<split_name>.png`
+- `outputs/plots/<experiment_name>/age_residual_scatter_<split_name>.png`
+- `outputs/plots/<experiment_name>/gender_confusion_matrix_<split_name>.png`
+- `outputs/plots/<experiment_name>/gender_roc_curve_<split_name>.png` when both gender classes are present
+- `outputs/plots/<experiment_name>/sample_predictions_<split_name>.png`
 
-### Benchmark outputs
+### Optional benchmark comparison outputs
 
-- `outputs/results/naive_baselines/metrics_summary.csv`
-- `outputs/results/opencv_benchmark/metrics_summary.csv`
+Running `benchmarks_naive.py` and `evaluate.py` will maintain split-aware comparison files:
+
 - `outputs/results/benchmark_comparison.csv`
-- `outputs/plots/benchmark_comparison/benchmark_bar_age_mae.png`
-- `outputs/plots/benchmark_comparison/benchmark_bar_gender_accuracy.png`
+- `outputs/plots/benchmark_comparison/<split_name>/benchmark_bar_age_mae.png`
+- `outputs/plots/benchmark_comparison/<split_name>/benchmark_bar_gender_accuracy.png`
 
-## Fair OpenCV comparison note
+## Notes
 
-The OpenCV age model predicts **age buckets**, not exact ages. This project compares fairly in two ways:
-
-1. **Bucket accuracy**: both methods are converted to the same 8 age buckets.
-2. **Approximate regression MAE**: OpenCV bucket outputs are converted to bucket midpoints before computing MAE.
-
-Use bucket accuracy as the fairest direct comparison.
-
-## Good report points
-
-When you interpret the results, focus on:
-
-- **Age MAE** for exact-age performance
-- **Gender accuracy / F1** for classification quality
-- Whether the improved CNN beats the baseline CNN
-- Whether the CNN beats the naive baselines
-- Whether the CNN beats OpenCV on UTKFace test data
-- Whether OpenCV performs worse partly because it was trained for age **groups**, not exact age regression
-
-
-
-## Notes for the fixed version
-- Added an auxiliary age-bucket head for hybrid regression + bucket supervision.
-- Added optional SE blocks with `--use_se`.
-- All matplotlib plots now include grids.
-- CSV export now includes `age_bucket_excel` to stop spreadsheet apps from turning `0-2` into dates.
-- Data split now uses age-strata + gender stratification and writes a split distribution summary.
-- GPU is used automatically when a CUDA-enabled PyTorch install is available.
-- `torchvision` was removed from the project dependency chain to avoid version-mismatch import failures.
+- Training and evaluation use GPU automatically when available.
+- The project does not depend on `torchvision`.
+- The workflow now keeps a held-out `test` split for final comparisons.
+- Relative paths are resolved from the project root, so scripts behave consistently even when launched from another working directory.
+- New training runs save public variant names only: `baseline` and `improved_with_se`.
+- Checkpoint loading remains backward-compatible with older checkpoints that stored legacy variant metadata, but state-dict loading is strict.
