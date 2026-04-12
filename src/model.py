@@ -1,7 +1,17 @@
+from typing import Optional
+
 import torch
 import torch.nn as nn
 
-from config import NUM_AGE_BUCKETS
+PUBLIC_MODEL_VARIANTS = ('baseline', 'improved_with_se')
+LEGACY_MODEL_VARIANTS = ('improved',)
+ALL_MODEL_VARIANTS = PUBLIC_MODEL_VARIANTS + LEGACY_MODEL_VARIANTS
+
+
+def normalize_public_variant(variant: str) -> str:
+    if variant not in PUBLIC_MODEL_VARIANTS:
+        raise ValueError("variant must be one of: 'baseline', 'improved_with_se'")
+    return variant
 
 
 class SEModule(nn.Module):
@@ -43,49 +53,31 @@ class ConvBlock(nn.Module):
 
 
 class MultiTaskCNN(nn.Module):
-    def __init__(self, variant: str = "baseline", dropout: float = 0.3, use_se: bool = False):
+    def __init__(self, variant: str = 'baseline', dropout: float = 0.3, use_se: Optional[bool] = None):
         super().__init__()
-        if variant not in {"baseline", "improved"}:
-            raise ValueError("variant must be 'baseline' or 'improved'")
-
-        if variant == "baseline":
+        if variant not in ALL_MODEL_VARIANTS:
+            raise ValueError("variant must be one of: 'baseline', 'improved_with_se' (legacy checkpoints may use 'improved')")
+        if variant == 'baseline':
             channels = [32, 64, 128, 256]
+            resolved_use_se = bool(use_se) if use_se is not None else False
+        elif variant == 'improved_with_se':
+            channels = [32, 64, 128, 256, 384]
+            resolved_use_se = True
         else:
             channels = [32, 64, 128, 256, 384]
-
+            resolved_use_se = bool(use_se)
+        self.variant = variant
+        self.use_se = resolved_use_se
         blocks = []
         in_ch = 3
         for out_ch in channels:
-            blocks.append(ConvBlock(in_ch, out_ch, pool=True, use_se=use_se))
+            blocks.append(ConvBlock(in_ch, out_ch, pool=True, use_se=resolved_use_se))
             in_ch = out_ch
-
         self.backbone = nn.Sequential(*blocks)
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.shared_fc = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(channels[-1], 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-        )
-
-        self.age_head = nn.Sequential(
-            nn.Linear(256, 128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(128, 1),
-        )
-        self.gender_head = nn.Sequential(
-            nn.Linear(256, 128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(128, 1),
-        )
-        self.age_bucket_head = nn.Sequential(
-            nn.Linear(256, 128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(128, NUM_AGE_BUCKETS),
-        )
+        self.shared_fc = nn.Sequential(nn.Flatten(), nn.Linear(channels[-1], 256), nn.ReLU(inplace=True), nn.Dropout(dropout))
+        self.age_head = nn.Sequential(nn.Linear(256, 128), nn.ReLU(inplace=True), nn.Dropout(dropout), nn.Linear(128, 1))
+        self.gender_head = nn.Sequential(nn.Linear(256, 128), nn.ReLU(inplace=True), nn.Dropout(dropout), nn.Linear(128, 1))
 
     def forward(self, x):
         feats = self.backbone(x)
@@ -93,12 +85,4 @@ class MultiTaskCNN(nn.Module):
         feats = self.shared_fc(feats)
         age = self.age_head(feats).squeeze(1)
         gender_logit = self.gender_head(feats).squeeze(1)
-        age_bucket_logits = self.age_bucket_head(feats)
-        age_bucket_prob = torch.softmax(age_bucket_logits, dim=1)
-        return {
-            "age": age,
-            "gender_logit": gender_logit,
-            "gender_prob": torch.sigmoid(gender_logit),
-            "age_bucket_logits": age_bucket_logits,
-            "age_bucket_prob": age_bucket_prob,
-        }
+        return {'age': age, 'gender_logit': gender_logit, 'gender_prob': torch.sigmoid(gender_logit)}
